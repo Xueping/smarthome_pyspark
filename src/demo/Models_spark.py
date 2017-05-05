@@ -8,8 +8,9 @@ import os
 from pyspark import SparkContext
 from pyspark.mllib.classification import LogisticRegressionWithLBFGS
 from pyspark.mllib.regression import LabeledPoint
-from pyspark.mllib.tree import RandomForest, DecisionTree
+from pyspark.mllib.tree import RandomForest, DecisionTree, GradientBoostedTrees
 import sys, codecs
+
 
 #生成中间文件（类似于数据库中格式），并存储到results.txt文件中
 def processfile(record):
@@ -369,39 +370,45 @@ if __name__ == "__main__":
     features = finalDataWithWeather.map(lambda item :(item[1],item))\
                     .groupByKey().mapValues(list).map(lambda item:item[1])\
                     .flatMap(dataPrepareStepOne)
-                    
-#     labeledPoints = features.filter(filterTemp).map(transformer).map(labelPoints)
+
     transformedData = features.filter(filterTemp).map(transformer)
-    labeledPoints   = transformedData.map(labelPoints)
+    if os.path.exists("finalDataset.txt"):
+            os.remove("finalDataset.txt")
+    finalDS =  codecs.open('finalDataset.txt',"a+","utf-8")
+    ds = transformedData.map(lambda item :  ','.join('{:.0f}'.format(x) for x in item)).collect()
+    finalDS.write('\n'.join(ds))
+    finalDS.close()
     
+    labeledPoints   = transformedData.map(labelPoints)
+      
     labelIndex = labeledPoints.map(lambda item : item.label).distinct().zipWithIndex().collect()
     labelIndex = dict((key, value) for (key, value) in labelIndex)
     labeledPoints = labeledPoints.map(lambda item : LabeledPoint(labelIndex[item.label],item.features))
-    
+      
     classNumber = len(labelIndex)
-    
+      
     labelEncode = transformedData.map(lambda item : str(labelIndex[item[-1]*90+ item[-2]*1+item[-3]*5+item[-4]*15])+":"+
                                       str(item[-1])+","+ str(item[-2]) +","+str(item[-3])+","+ str(item[-4])).distinct()\
                                       .map(lambda item :(item.split(":")[0],item.split(":")[1])).collect()
     labelEncodeIndex = dict((key, value) for (key, value) in labelEncode)
-    
+      
 #     if os.path.exists("finalDataset.txt"):
 #             os.remove("finalDataset.txt")
 #     finalDS =  codecs.open('finalDataset.txt',"a+","utf-8")
 #     ds = labeledPoints.map(lambda item :  ','.join('{:.0f}'.format(x) for x in item.features)+"#"+labelEncodeIndex[str('{:.0f}'.format(item.label))]).collect()
 #     finalDS.write('\n'.join(ds))
 #     finalDS.close()
-
+  
     print "Number of classes for classification: " + str(classNumber)
-    
+      
     # Split the data into training and test sets (30% held out for testing)
     (trainingData, testData) = labeledPoints.randomSplit([0.7, 0.3])
-    
+      
     if algorithm == "LogisticRegression":
 #         numClasses  = int(sys.argv[2])
         # Build the model
         model = LogisticRegressionWithLBFGS.train(data=trainingData,numClasses=classNumber)
-        
+          
         # Evaluating the model on training data
         labelsAndPreds = testData.map(lambda p: (p.label, model.predict(p.features)))
         testErr = labelsAndPreds.filter(lambda (v, p): v != p).count() / float(testData.count())
@@ -410,7 +417,7 @@ if __name__ == "__main__":
                      'test Error: ' + str(testErr)+".<br/>" +\
                      "Number of classes for classification: " + str(classNumber)
             print >> f1,string.decode('utf8')
-    
+      
     elif algorithm == "DecisionTree":
 #         numClasses  = int(sys.argv[2])
         impurity  = str(sys.argv[3])
@@ -420,7 +427,7 @@ if __name__ == "__main__":
         minInfoGain  = float(sys.argv[7])
         model = DecisionTree.trainClassifier(trainingData, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
                                      impurity=impurity, maxDepth=maxDepth, maxBins=maxBins)
-
+  
         # Evaluate model on test instances and compute test error
         predictions = model.predict(testData.map(lambda x: x.features))
         labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
@@ -437,8 +444,20 @@ if __name__ == "__main__":
         dtree = dtModel.toDebugString() 
         tree_json(dtree,dtModelResults,labelEncodeIndex)
     
-    else: #RandomForest 448 gini 10 32 1 0 10 auto
-        
+    elif algorithm == "GradientBoostedTrees":   
+        model = GradientBoostedTrees.trainClassifier(trainingData,
+                                                 categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5}, numIterations=20)
+    
+        # Evaluate model on test instances and compute test error
+        predictions = model.predict(testData.map(lambda x: x.features))
+        labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
+        testErr = labelsAndPredictions.filter(lambda (v, p): v != p).count() / float(testData.count())
+        print('Test Error = ' + str(testErr))
+        print('Learned classification GBT model:')
+        print(model.toDebugString())
+      
+    else: #RandomForest 201612 gini 10 32 1 0 20 auto
+          
 #         numClasses  = int(sys.argv[2])
         impurity  = str(sys.argv[3])
         maxDepth  = int(sys.argv[4])
@@ -447,26 +466,26 @@ if __name__ == "__main__":
         minInfoGain  = float(sys.argv[7])
         numTrees=int(sys.argv[8])
         featureSubsetStrategy=str(sys.argv[9])
-
+  
         model = RandomForest.trainClassifier(trainingData, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
                                              impurity=impurity, maxDepth=maxDepth, maxBins=maxBins,
                                              numTrees=numTrees, featureSubsetStrategy=featureSubsetStrategy)
-    
+      
         # Evaluate model on test instances and compute test error
         predictions = model.predict(testData.map(lambda x: x.features))
         labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
         testErr = labelsAndPredictions.filter(lambda lp: lp[0] != lp[1]).count() / float(testData.count())
-        
+          
         with codecs.open('results.txt',"w","utf-8") as f1:
             string = "dataset: "+dataset +".<br/>"+\
                      'test Error:' + str(testErr)+".<br/>" +\
                      "Number of classes for classification: " + str(classNumber) +".<br/>" +\
                      "TreeEnsembleModel classifier with "+ str(numTrees) +" trees."
             print >> f1,string.decode('utf8')
-        
+          
         print('Test_Error = ' + str(testErr) + "\n")
         print(model)
-        
+          
         rfModel = RandomForest.trainClassifier(labeledPoints, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
                                              impurity=impurity, maxDepth=maxDepth, maxBins=maxBins,
                                              numTrees=numTrees, featureSubsetStrategy=featureSubsetStrategy)

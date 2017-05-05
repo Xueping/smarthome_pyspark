@@ -1,17 +1,18 @@
-# -*- coding: UTF-8 -*-
-#原始数据文件放在当前目录下的csv目录下，数据清洗最终结果会放在当前目录下的output目录下
-#程序运行方式（命令行方式）：／path／spark-summit etlstart.py
+# coding=utf-8
+
+'''
+Created on 4 May 2017
+
+@author: xuepeng
+'''
 
 from datetime import datetime
 import os
 from pyspark import SparkContext
 from pyspark.ml.feature import StringIndexer, OneHotEncoder
-from pyspark.mllib.classification import LogisticRegressionWithLBFGS
 from pyspark.mllib.regression import LabeledPoint
-from pyspark.mllib.tree import RandomForest, DecisionTree
 from pyspark.sql.session import SparkSession
-import shutil
-import sys, codecs
+import codecs
 
 import numpy as np
 
@@ -227,11 +228,11 @@ def parseRowOneHotRegression(line):
 
 
 def parseRowOneHot(line):
-    features = np.concatenate((np.array([line.temp1, line.temp2, line.temp3,
-                                        line.speed1, line.speed2, line.speed3, line.weather]), 
+    features = np.concatenate((         line.temp1Vec.toArray(), line.temp2Vec.toArray(), line.temp3Vec.toArray(),
+                                        line.speed1Vec.toArray(), line.speed2Vec.toArray(), line.speed3Vec.toArray(),
                                         line.direction1Vec.toArray(), line.direction2Vec.toArray(), line.direction3Vec.toArray(),
-                                        line.mode1Vec.toArray(), line.mode2Vec.toArray(), line.mode3Vec.toArray(),
-                                        line.speed,line.direction,line.mode1,line.temp), axis=0)
+                                        line.mode1Vec.toArray(), line.mode2Vec.toArray(), line.mode3Vec.toArray() ,#line.weatherVec.toArray(),
+                                        np.array([line.speed,line.direction,line.mode1,line.temp])), axis=0)
     return  features
 
 def indexAndEncode(processedData,features):
@@ -249,8 +250,6 @@ if __name__ == "__main__":
 #     data_file = "/home/xuepeng/data/smarthome/oct_data"
 #     weather_file = "/home/xuepeng/data/smarthome/weather/oct_weather.txt"
 
-    algorithm  = str(sys.argv[1])
-    
 #     dataFile  = str(sys.argv[2])
  
     data_file = "/home/xuepeng/data/smarthome/dec_data"
@@ -287,115 +286,21 @@ if __name__ == "__main__":
                     
 #     labeledPoints = features.filter(filterTemp).map(transformer).map(labelPoints)
     transformedData = features.filter(filterTemp).map(transformer)
-    labeledPoints   = transformedData.map(labelPoints)
-#     labeledPoints   = transformedData.map(temperatureLabelPoints)
     
-    labelIndex = labeledPoints.map(lambda item : item.label).distinct().zipWithIndex().collect()
-    labelIndex = dict((key, value) for (key, value) in labelIndex)
-    labeledPoints = labeledPoints.map(lambda item : LabeledPoint(labelIndex[item.label],item.features))
-    
-    if os.path.exists("finalDataset.txt"):
-            os.remove("finalDataset.txt")
-    finalDS =  codecs.open('finalDataset.txt',"a+","utf-8")
-    ds = labeledPoints.map(lambda item :  ','.join('{:.0f}'.format(x) for x in item.features)+"#"+str('{:.0f}'.format(item.label))).collect()
-    finalDS.write('\n'.join(ds))
-    finalDS.close()
-    
-    labelEncode = transformedData.map(lambda item : str(labelIndex[item[-1]*90+ item[-2]*1+item[-3]*5+item[-4]*15])+":"+
-                                      '{'+str(item[-1])+","+ str(item[-2]) +","+str(item[-3])+","+ str(item[-4])+'}')\
-                                      .distinct().collect()
-
-    lcFile =  codecs.open('labelEncoder.txt',"w","utf-8")
-    lcFile.write('\n'.join(labelEncode))
-    lcFile.close()
-    
-    classNumber = len(labelIndex)
-    
-    print "class number is " + str(classNumber)
-    
-    # Split the data into training and test sets (30% held out for testing)
-    (trainingData, testData) = labeledPoints.randomSplit([0.7, 0.3])
-    
-    if algorithm == "LogisticRegression": 
-        processedData = transformedData.\
+    processedData = transformedData.\
         toDF(['temp1', 'temp2','temp3','speed1','speed2','speed3','direction1','direction2','direction3',\
               'mode1','mode2','mode3','weather','speed','direction','mode','temp'])
         
-        categoricalFeatures = ['direction1','direction2','direction3','mode1','mode2','mode3']
-        
-        labeledPoints = indexAndEncode(processedData,categoricalFeatures).rdd.map(parseRowOneHotRegression)
-        (trainingData, testData) = labeledPoints.randomSplit([0.7, 0.3])
-        
-        # Build the model
-        model = LogisticRegressionWithLBFGS.train(data=trainingData,numClasses=classNumber)
-        
-        # Evaluating the model on training data
-        labelsAndPreds = testData.map(lambda p: (p.label, model.predict(p.features)))
-        testErr = labelsAndPreds.filter(lambda (v, p): v != p).count() / float(testData.count())
-        with codecs.open('results.txt',"w","utf-8") as f1:
-            string = 'testErr:' + str(testErr)
-            print >> f1,string.decode('utf8')
+    categoricalFeatures = ['temp1', 'temp2','temp3','speed1','speed2','speed3','direction1','direction2',\
+                           'direction3','mode1','mode2','mode3','weather']
+    onehotFeatures = indexAndEncode(processedData,categoricalFeatures).rdd.map(parseRowOneHot)
     
-    elif algorithm == "DecisionTree": #DecisionTree 201612 gini 10 32 1 0
-#         numClasses  = int(sys.argv[2])
-        impurity  = str(sys.argv[3])
-        maxDepth  = int(sys.argv[4])
-        maxBins  = int(sys.argv[5])
-        minInstancesPerNode  = int(sys.argv[6])
-        minInfoGain  = float(sys.argv[7])
-        model = DecisionTree.trainClassifier(trainingData, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
-                                     impurity=impurity, maxDepth=maxDepth, maxBins=maxBins)
-
-        # Evaluate model on test instances and compute test error
-        predictions = model.predict(testData.map(lambda x: x.features))
-        labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
-        testErr = labelsAndPredictions.filter(lambda (v, p): v != p).count() / float(testData.count())
-        with codecs.open('results.txt',"w","utf-8") as f1:
-            string = 'testErr:' + str(testErr)
-            print >> f1,string.decode('utf8')
-            print >> f1,model.toDebugString
-            
-        print string
-        print model.toDebugString
-        
-        dtModel = DecisionTree.trainClassifier(labeledPoints, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
-                                     impurity=impurity, maxDepth=maxDepth, maxBins=maxBins)
-        if os.path.exists("output/DTModel"):
-            shutil.rmtree("output/DTModel")
-        dtModel.save(sc, "output/DTModel")
-        
     
-    else: #RandomForest 448 gini 10 32 1 0 20 auto
-        
-        numClasses  = int(sys.argv[2])
-        impurity  = str(sys.argv[3])
-        maxDepth  = int(sys.argv[4])
-        maxBins  = int(sys.argv[5])
-        minInstancesPerNode  = int(sys.argv[6])
-        minInfoGain  = float(sys.argv[7])
-        numTrees=int(sys.argv[8])
-        featureSubsetStrategy=str(sys.argv[9])
-
-        model = RandomForest.trainClassifier(trainingData, numClasses=classNumber, categoricalFeaturesInfo={6:3,7:3,8:3,9:5,10:5,11:5},
-                                             impurity=impurity, maxDepth=maxDepth, maxBins=maxBins,
-                                             numTrees=numTrees, featureSubsetStrategy=featureSubsetStrategy)
-    
-        # Evaluate model on test instances and compute test error
-        predictions = model.predict(testData.map(lambda x: x.features))
-        labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
-        testErr = labelsAndPredictions.filter(lambda lp: lp[0] != lp[1]).count() / float(testData.count())
-        
-        with codecs.open('results.txt',"w","utf-8") as f1:
-            string = 'Test_Error:' + str(testErr)
-            print >> f1,string.decode('utf8')
-            print >> f1,model.toDebugString
-            
-        if os.path.exists("output/RFModel"):
-            os.remove("output/RFModel")
-        model.save(sc, "output/RFModel")
-        
-        
-        print('Test_Error = ' + str(testErr) + "\n")
-        print(model.toDebugString())
+    if os.path.exists("oneHostDataset.txt"):
+            os.remove("oneHostDataset.txt")
+    finalDS =  codecs.open('oneHostDataset.txt',"a+","utf-8")
+    ds = onehotFeatures.map(lambda item :  ','.join('{:.0f}'.format(x) for x in item)).collect()
+    finalDS.write('\n'.join(ds))
+    finalDS.close()
 
     sc.stop()
