@@ -231,7 +231,7 @@ def parseRowOneHot(line):
     features = np.concatenate((         line.temp1Vec.toArray(), line.temp2Vec.toArray(), line.temp3Vec.toArray(),
                                         line.speed1Vec.toArray(), line.speed2Vec.toArray(), line.speed3Vec.toArray(),
                                         line.direction1Vec.toArray(), line.direction2Vec.toArray(), line.direction3Vec.toArray(),
-                                        line.mode1Vec.toArray(), line.mode2Vec.toArray(), line.mode3Vec.toArray() ,#line.weatherVec.toArray(),
+                                        line.mode1Vec.toArray(), line.mode2Vec.toArray(), line.mode3Vec.toArray() ,line.weatherVec.toArray(),
                                         np.array([line.speed,line.direction,line.mode1,line.temp])), axis=0)
     return  features
 
