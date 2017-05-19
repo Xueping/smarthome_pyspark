@@ -247,16 +247,9 @@ def indexAndEncode(processedData,features):
     return encodedFinal
     
 if __name__ == "__main__":
-#     data_file = "/home/xuepeng/data/smarthome/oct_data"
-#     weather_file = "/home/xuepeng/data/smarthome/weather/oct_weather.txt"
-
-#     dataFile  = str(sys.argv[2])
  
     data_file = "/home/xuepeng/data/smarthome/dec_data"
     weather_file = "/home/xuepeng/data/smarthome/weather/dec_weather.txt"
-    
-#     data_file = "/home/xuepeng/data/smarthome/oct_data"
-#     weather_file = "/home/xuepeng/data/smarthome/weather/oct_weather.txt"
     
     sc = SparkContext("local[20]", "First_Spark_App")
     spark = SparkSession \
@@ -279,23 +272,26 @@ if __name__ == "__main__":
                      .groupByKey().mapValues(list).filter(filterline).map(lambda line:line[1])\
                      .flatMap(mapone).map(lambda line:(line[1]+" "+line[4],line)).sortByKey().map(lambda line:line[1])\
     
-    #begin to run randomForests
+    #Extract features
     features = finalDataWithWeather.map(lambda item :(item[1],item))\
                     .groupByKey().mapValues(list).map(lambda item:item[1])\
                     .flatMap(dataPrepareStepOne)
                     
-#     labeledPoints = features.filter(filterTemp).map(transformer).map(labelPoints)
     transformedData = features.filter(filterTemp).map(transformer)
     
+    #Convert RDD Data to DataFrame
     processedData = transformedData.\
         toDF(['temp1', 'temp2','temp3','speed1','speed2','speed3','direction1','direction2','direction3',\
               'mode1','mode2','mode3','weather','speed','direction','mode','temp'])
-        
+    
+    #Indicate which Feature should be one-hot encoding  
     categoricalFeatures = ['temp1', 'temp2','temp3','speed1','speed2','speed3','direction1','direction2',\
                            'direction3','mode1','mode2','mode3','weather']
+    
+    #Get one-hot encoding features which include last four labels
     onehotFeatures = indexAndEncode(processedData,categoricalFeatures).rdd.map(parseRowOneHot)
     
-    
+    #Write one-hot encoding features in file or do next step for processing data
     if os.path.exists("oneHostDataset.txt"):
             os.remove("oneHostDataset.txt")
     finalDS =  codecs.open('oneHostDataset.txt',"a+","utf-8")
