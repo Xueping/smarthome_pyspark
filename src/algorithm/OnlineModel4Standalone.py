@@ -8,7 +8,7 @@ import random
 import numpy as np
 
 
-class PerceptronModel(object):
+class OnlineModel4Standalone(object):
     
     def __init__(self,numFeatures, numClasses,learningRatio):
         self._numFeatures = int(numFeatures)

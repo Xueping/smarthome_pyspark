@@ -9,7 +9,7 @@ import random
 import numpy as np
 
 
-class PerceptronAlgorithmSpark(object):
+class OnlineModel4Spark(object):
     
     def __init__(self,numFeatures, numClasses,learningRatio):
         self._numFeatures = int(numFeatures)
@@ -87,7 +87,7 @@ class PerceptronAlgorithmSpark(object):
     def trainOn(self, dstream):
 
         def update(rdd):
-            # LinearRegressionWithSGD.train raises an error for an empty RDD.
+            #train raises an error for an empty RDD.
             if not rdd.isEmpty():
                 self.train(rdd)
 
