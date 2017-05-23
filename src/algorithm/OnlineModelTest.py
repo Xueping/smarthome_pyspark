@@ -59,6 +59,5 @@ def perceptronModelTest():
 if __name__ == "__main__":
 #     
     perceptronModelTest()
-#     OnlineModelTest()
     
             
